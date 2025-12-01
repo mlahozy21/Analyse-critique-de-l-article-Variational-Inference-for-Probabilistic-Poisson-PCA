@@ -4,7 +4,7 @@ This repository contains the **R code** required to reproduce the experimental r
 
 > **Chiquet, J., Mariadassou, M., & Robin, S. (2018).** Variational inference for probabilistic Poisson PCA. *The Annals of Applied Statistics*, 12(4), 2674-2698.
 
-## 📌 Overview
+## Overview
 
 The objective of this project is to validate the **Probabilistic Poisson PCA (PLNPCA)** method using the official R package `PLNmodels`. The scripts focus on **Section 7.2 (Oak Powdery Mildew Pathobiome)**, reproducing the model selection diagnostics, PCA projections, and conditional variance analysis.
 
@@ -13,7 +13,7 @@ The code addresses several implementation challenges, including:
 * Robust extraction of model criteria ($R^2$, BIC, ICL).
 * Manual matrix algebra to compute conditional standard errors for Figure 6.
 
-## 📂 Repository Structure
+## Repository Structure
 
 | File Name | Description | Corresponds to |
 | :--- | :--- | :--- |
