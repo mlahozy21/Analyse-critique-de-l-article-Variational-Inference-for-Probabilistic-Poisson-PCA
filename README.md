@@ -20,7 +20,7 @@ The code addresses several implementation challenges, including:
 | **`01_oaks_pca_analysis.R`** | Main analysis script. Fits Null Model ($M_0$) vs. Covariate Model ($M_1$), performs model selection, and visualizes the latent space. | **Figures 4 & 5** |
 | **`02_conditional_variance.R`** | Advanced analysis script. Fits the optimal rank model ($q=25$) and computes the approximate conditional standard error of latent variables $Z_{ij}$. | **Figure 6** |
 
-## 🛠️ Prerequisites
+## Prerequisites
 
 To run these scripts, you need **R** installed along with the following packages:
 
