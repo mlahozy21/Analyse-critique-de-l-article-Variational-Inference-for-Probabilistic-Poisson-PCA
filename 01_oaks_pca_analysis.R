@@ -41,15 +41,20 @@ message("--- Step 2: Fitting Models (Ranks 1 to 30) ---")
 
 # Fit Model M0: Null model (Offset only, no covariates)
 # Reference: "We first fitted a null Poisson-lognormal model M0" 
-try({
-  M0_collection <- PLNPCA(Abundance ~ 1, data = oaks_data, ranks = 1:30)
-})
+# Capture failures explicitly: a try({}) with no error handler would let the
+# script continue with a stale/undefined M0_collection and silently mask the
+# failure. tryCatch re-raises with a clear message instead.
+M0_collection <- tryCatch(
+  PLNPCA(Abundance ~ 1, data = oaks_data, ranks = 1:30),
+  error = function(e) stop("PLNPCA fit for M0 failed: ", conditionMessage(e))
+)
 
 # Fit Model M1: Full model (Offset + Tree + Orientation)
 # Reference: "Model M1 involving two covariates: tree... and orientation" 
-try({
-  M1_collection <- PLNPCA(Abundance ~ tree + orientation, data = oaks_data, ranks = 1:30)
-})
+M1_collection <- tryCatch(
+  PLNPCA(Abundance ~ tree + orientation, data = oaks_data, ranks = 1:30),
+  error = function(e) stop("PLNPCA fit for M1 failed: ", conditionMessage(e))
+)
 
 message("Models fitted successfully. Generating figures...")
 
@@ -73,14 +78,20 @@ get_criteria_robust <- function(model_collection, label) {
     return(val)
   })
   df$R_squared <- as.numeric(r2_values)
-  
-  # Fallback: Approximate R2 if completely missing (for visualization purposes)
-  if(all(is.na(df$R_squared))) {
-    min_l <- min(df$loglik)
-    max_l <- max(df$loglik)
-    df$R_squared <- (df$loglik - min_l) / (max_l - min_l)
+
+  # If R2 is genuinely unavailable from the fitted models we must NOT fabricate
+  # a substitute. The previous "fallback" min-max normalised the log-likelihood
+  # and relabelled it "R2" — that quantity is not an R2 (it is a rescaled
+  # log-lik that is 0 at the worst rank and 1 at the best by construction), and
+  # plotting it on an R2 axis is misleading. Error out honestly instead so the
+  # problem is fixed at the source (e.g. enable rsquared in the post-treatment
+  # config) rather than silently masked.
+  if (all(is.na(df$R_squared))) {
+    stop("R2 is missing for every model in '", label, "'. Refit with the ",
+         "post-treatment R2 computation enabled (config_post: rsquared = TRUE) ",
+         "instead of substituting a fabricated criterion.")
   }
-  
+
   return(df)
 }
 
@@ -222,43 +233,49 @@ message("--- Step 2: Fitting Rank 25 (Unique Object) ---")
 
 # We use a totally NEW variable name 'collection_final'
 # This prevents R from looking at 'M1_optimal' or 'M1_collection' from before
-try({
-  collection_final <- PLNPCA(Abundance ~ tree + orientation, data = data_final, ranks = 25)
-})
+collection_final <- tryCatch(
+  PLNPCA(Abundance ~ tree + orientation, data = data_final, ranks = 25),
+  error = function(e) stop("PLNPCA fit (rank 25, Figure 6) failed: ", conditionMessage(e))
+)
 
 # Access the first (and only) model in this new collection
 # We call it 'model_25' to be specific
 model_25 <- collection_final$models[[1]]
 
-message("--- Step 3: Verifying Dimensions ---")
+message("--- Step 3: Extracting variational parameters ---")
 
-# Extract matrices
-B_final <- as.matrix(model_25$model_par$B)
-S_final <- as.matrix(model_25$var_par$S)
-Y_final <- as.matrix(data_final$Abundance)
+# Conditional standard error of the latent position (see 02_conditional_variance.R
+# for the full derivation). The variational posterior of the latent score vector
+# of sample i is Z_i ~ N(M_i, diag(S_i^2)); the latent position in species space
+# is Z C^T with C = model_par$C the (p x q) PCA loadings. Hence the conditional
+# variance of the (i, j) latent position is ( S^2 %*% t(C^2) )_{ij}, an (n x p)
+# matrix aligned one-to-one with the (n x p) abundance matrix Y.
+#
+# FIX: the previous code used B = model_par$B (the covariate-regression
+# coefficients, d x p) instead of the PCA loadings C, and then transposed /
+# truncated matrices to "common rank" to force compatible shapes. B plays no
+# role in the latent-score covariance; the correct quantity uses S and C only,
+# and the shapes are correct by construction (no reshaping hacks needed).
+C_final <- as.matrix(model_25$model_par$C)   # (p x q) loadings, NOT model_par$B
+S_final <- as.matrix(model_25$var_par$S)     # (n x q) variational std-devs
+Y_final <- as.matrix(data_final$Abundance)   # (n x p) observed abundances
 
-# Check dimensions explicitly
-q_B <- ncol(B_final)
-q_S <- ncol(S_final)
+cat("dim C (p x q):", paste(dim(C_final), collapse = " x "), "\n")
+cat("dim S (n x q):", paste(dim(S_final), collapse = " x "), "\n")
 
-cat("Rank of B:", q_B, "\n")
-cat("Rank of S:", q_S, "\n")
-
-# Safety fix if B comes transposed (rare but possible)
-if (q_B != 25 && nrow(B_final) == 25) {
-  message("Transposing B...")
-  B_final <- t(B_final)
-  q_B <- ncol(B_final)
-}
+# Shapes must be correct by construction; assert rather than silently reshape.
+stopifnot(ncol(C_final) == 25L, ncol(S_final) == 25L)
+stopifnot(nrow(C_final) == ncol(Y_final))    # p = number of species
+stopifnot(nrow(S_final) == nrow(Y_final))    # n = number of samples
 
 
 # --- Step 4: Calculation & Plot ---
 
-# Formula: Var(Z) = S^2 * (B^2)^T
+# Var[(Z C^T)_ij | Y] = ( S^2 %*% t(C^2) )_ij   ->   SE = sqrt(.)
 S_sq <- S_final^2
-B_sq <- B_final^2
+C_sq <- C_final^2
 
-Var_Z <- S_sq %*% t(B_sq)
+Var_Z <- S_sq %*% t(C_sq)   # (n x p), aligns with Y
 SD_Z  <- sqrt(Var_Z)
 
 # DataFrame for ggplot
